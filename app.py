@@ -8,7 +8,6 @@ from spellchecker import SpellChecker
 from transformers import pipeline
 import torch
 
-
 # ---------- CONFIG ----------
 PICKLE_FILE = "output/embeddings.pkl"
 FAISS_INDEX_FILE = "output/faiss_index.index"
@@ -47,6 +46,24 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
             "distance": distances[0][i]
         })
     return results
+
+# ---------- LOAD FREE HUGGING FACE MODEL ----------
+@st.cache_resource
+def load_local_llm():
+    try:
+        llm = pipeline(
+            "text2text-generation",
+            model="google/flan-t5-base",   # or 'flan-t5-small' for lighter version
+            device=0 if torch.cuda.is_available() else -1
+        )
+        return llm
+    except Exception as e:
+        st.error(f"Error loading local model: {e}")
+        return None
+
+llm = load_local_llm()
+
+# ---------- INFERENCE FUNCTION ----------
 def infer_with_local_llm(query, retrieved_chunks):
     if not llm:
         return "LLM not available."
@@ -68,23 +85,6 @@ Provide a concise academic answer based only on the above context.
         return response[0]["generated_text"]
     except Exception as e:
         return f"Error during inference: {e}"
-
-
-# ---------- LOAD FREE HUGGING FACE MODEL ----------
-@st.cache_resource
-def load_local_llm():
-    try:
-        llm = pipeline(
-            "text2text-generation",
-            model="google/flan-t5-base",   # or 'flan-t5-small' for lighter version
-            device=0 if torch.cuda.is_available() else -1
-        )
-        return llm
-    except Exception as e:
-        st.error(f"Error loading local model: {e}")
-        return None
-
-llm = load_local_llm()
 
 # ---------- HIGHLIGHT FUNCTION ----------
 def highlight_terms(text, query):
@@ -112,6 +112,12 @@ if query:
         st.write(highlight_terms(r["chunk_text"], query))
         st.markdown("---")
 
+    # ---- Inference section ----
+    if st.button("🧠 Generate AI Summary / Answer"):
+        st.subheader("LLM Inference Result:")
+        answer = infer_with_local_llm(query, results)
+        st.success(answer)
+
 # ---------- ABOUT SECTION ----------
 with st.expander("About this App"):
     st.markdown("""
@@ -128,7 +134,5 @@ search and explore the content of the monograph efficiently.
 - Full-text search with semantic understanding via embeddings.  
 - Query-term highlighting for easy reference.  
 - Adjustable number of results (top-k).  
-- Handles scanned PDFs using OCR while preserving the original content.
+- Integrated free Hugging Face model for summarization/inference.
 """)
-
-
