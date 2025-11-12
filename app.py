@@ -5,6 +5,9 @@ import faiss
 import numpy as np
 import re
 from spellchecker import SpellChecker
+from transformers import pipeline
+import torch
+
 
 # ---------- CONFIG ----------
 PICKLE_FILE = "output/embeddings.pkl"
@@ -44,6 +47,23 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
             "distance": distances[0][i]
         })
     return results
+
+
+# ---------- LOAD FREE HUGGING FACE MODEL ----------
+@st.cache_resource
+def load_local_llm():
+    try:
+        llm = pipeline(
+            "text2text-generation",
+            model="google/flan-t5-base",   # or 'flan-t5-small' for lighter version
+            device=0 if torch.cuda.is_available() else -1
+        )
+        return llm
+    except Exception as e:
+        st.error(f"Error loading local model: {e}")
+        return None
+
+llm = load_local_llm()
 
 # ---------- HIGHLIGHT FUNCTION ----------
 def highlight_terms(text, query):
@@ -89,3 +109,4 @@ search and explore the content of the monograph efficiently.
 - Adjustable number of results (top-k).  
 - Handles scanned PDFs using OCR while preserving the original content.
 """)
+
