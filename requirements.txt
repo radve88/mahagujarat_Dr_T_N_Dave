@@ -1,8 +1,10 @@
+pygments==2.19.2
+mdurl==0.1.2
+markdown-it-py==4.0.0
+rich==14.2.0
 streamlit
-faiss-cpu
 sentence-transformers
-numpy
-pyspellchecker
-pickle5
-transformers
 torch
+faiss-cpu
+numpy
+spellchecker
