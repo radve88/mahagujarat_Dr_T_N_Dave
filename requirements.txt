@@ -7,4 +7,4 @@ sentence-transformers
 torch
 faiss-cpu
 numpy
-spellchecker
+pyspellchecker
