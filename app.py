@@ -47,6 +47,27 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
             "distance": distances[0][i]
         })
     return results
+def infer_with_local_llm(query, retrieved_chunks):
+    if not llm:
+        return "LLM not available."
+
+    context = "\n\n".join([r["chunk_text"] for r in retrieved_chunks])
+    prompt = f"""
+You are assisting in understanding Dr. T. N. Dave's 1948 monograph *The Language of Maha Gujarat*.
+
+Context:
+{context}
+
+Question:
+{query}
+
+Provide a concise academic answer based only on the above context.
+"""
+    try:
+        response = llm(prompt, max_new_tokens=200)
+        return response[0]["generated_text"]
+    except Exception as e:
+        return f"Error during inference: {e}"
 
 
 # ---------- LOAD FREE HUGGING FACE MODEL ----------
@@ -109,4 +130,5 @@ search and explore the content of the monograph efficiently.
 - Adjustable number of results (top-k).  
 - Handles scanned PDFs using OCR while preserving the original content.
 """)
+
 
