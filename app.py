@@ -130,9 +130,16 @@ interested in linguistics, history, and regional studies of India.
 This app was created to help researchers, students, and language enthusiasts
 search and explore the content of the monograph efficiently.  
 
+This app is developed with love and devotion and tribute by me Rashmikant Dave an AI Architect and Developer 
+to my Grandfather Dr T N Dave the Author of the Mahagujarat Study and Monograph and dedicate to all my family
+and extended family of Dr T N Dave
+
+Respects to all other learned teachers and scholars of the Gujarati Language
+
 **Features:**  
 - Full-text search with semantic understanding via embeddings.  
 - Query-term highlighting for easy reference.  
 - Adjustable number of results (top-k).  
 - Integrated free Hugging Face model for summarization/inference.
 """)
+
