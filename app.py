@@ -5,13 +5,12 @@ import faiss
 import numpy as np
 import re
 from spellchecker import SpellChecker
-from transformers import pipeline
-import torch
 
 # ---------- CONFIG ----------
 PICKLE_FILE = "output/embeddings.pkl"
 FAISS_INDEX_FILE = "output/faiss_index.index"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MAX_LEN = 400  # chunk long text safely
 
 # ---------- LOAD DATA ----------
 @st.cache_resource
@@ -32,12 +31,20 @@ def correct_query(query):
     corrected = [spell.correction(w) for w in words]
     return " ".join(corrected)
 
+# ---------- SAFE CHUNKER ----------
+def safe_encode(text, model):
+    # Break long queries into smaller parts
+    words = text.split()
+    segments = [" ".join(words[i:i + MAX_LEN]) for i in range(0, len(words), MAX_LEN)]
+    embeddings = [model.encode(seg, convert_to_numpy=True) for seg in segments]
+    return np.mean(embeddings, axis=0)  # average embedding
+
 # ---------- QUERY FUNCTION ----------
 def query_faiss(query, top_k=3, apply_spell_check=True):
     if apply_spell_check:
         query = correct_query(query)
-    query_vec = model.encode([query], convert_to_numpy=True)
-    distances, indices = index.search(np.array(query_vec, dtype="float32"), top_k)
+    query_vec = safe_encode(query, model)
+    distances, indices = index.search(np.array([query_vec], dtype="float32"), top_k)
     results = []
     for i, idx in enumerate(indices[0]):
         results.append({
@@ -47,45 +54,6 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
         })
     return results
 
-# ---------- LOAD FREE HUGGING FACE MODEL ----------
-@st.cache_resource
-def load_local_llm():
-    try:
-        llm = pipeline(
-            "text2text-generation",
-            model="google/flan-t5-base",   # or 'flan-t5-small' for lighter version
-            device=0 if torch.cuda.is_available() else -1
-        )
-        return llm
-    except Exception as e:
-        st.error(f"Error loading local model: {e}")
-        return None
-
-llm = load_local_llm()
-
-# ---------- INFERENCE FUNCTION ----------
-def infer_with_local_llm(query, retrieved_chunks):
-    if not llm:
-        return "LLM not available."
-
-    context = "\n\n".join([r["chunk_text"] for r in retrieved_chunks])
-    prompt = f"""
-You are assisting in understanding Dr. T. N. Dave's 1948 monograph *The Language of Maha Gujarat*.
-
-Context:
-{context}
-
-Question:
-{query}
-
-Provide a concise academic answer based only on the above context.
-"""
-    try:
-        response = llm(prompt, max_new_tokens=200)
-        return response[0]["generated_text"]
-    except Exception as e:
-        return f"Error during inference: {e}"
-
 # ---------- HIGHLIGHT FUNCTION ----------
 def highlight_terms(text, query):
     pattern = re.compile(re.escape(query), re.IGNORECASE)
@@ -94,52 +62,52 @@ def highlight_terms(text, query):
 # ---------- STREAMLIT APP ----------
 st.title("Dr. T. N. Dave: Mahagujarat Monograph Search")
 st.markdown("""
-This app allows researchers to explore Dr. T. N. Dave's Mahagujarat monograph.
-It extracts text from the PDF, creates embeddings, and performs semantic search 
-so you can find relevant sections efficiently.
+This app helps researchers and students explore Dr. T. N. Dave’s *Mahagujarat Monograph* 
+through semantic search and interactive study features.
 """)
 
-# Top-k slider
+# ---------- PRESET QUESTIONS ----------
+st.subheader("Explore Key Questions:")
+preset_questions = [
+    "What does Dr. T. N. Dave say about the evolution of modern Gujarati?",
+    "What are the key features of Gujarat’s geography?",
+    "How does Dr. Dave describe regional dialects?",
+    "What were the historical phases of linguistic development?",
+    "What social or cultural factors influenced the Mahagujarat movement?"
+]
+
+selected_q = st.selectbox("Choose a question to explore:", ["-- Select a question --"] + preset_questions)
+query = st.text_input("Or enter your own search query:", value=selected_q if selected_q != "-- Select a question --" else "")
+
 top_k = st.slider("Number of results to display:", min_value=1, max_value=10, value=3)
 
-query = st.text_input("Enter your search query:")
-
+# ---------- RUN SEARCH ----------
 if query:
     results = query_faiss(query, top_k=top_k, apply_spell_check=True)
-    st.subheader(f"Top {top_k} results:")
+    st.subheader(f"Top {top_k} results for your query:")
     for r in results:
-        st.markdown(f"**Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}**")
-        st.write(highlight_terms(r["chunk_text"], query))
-        st.markdown("---")
+        with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
+            st.write(highlight_terms(r["chunk_text"], query))
 
-    # ---- Inference section ----
-    if st.button("🧠 Generate AI Summary / Answer"):
-        st.subheader("LLM Inference Result:")
-        answer = infer_with_local_llm(query, results)
-        st.success(answer)
+# ---------- INTERACTIVE Q&A ----------
+st.markdown("---")
+st.subheader("🧠 Student Q&A Mode")
+st.markdown("Try answering the questions above based on what you read. Type your thoughts below:")
+user_answer = st.text_area("Your answer:")
+if user_answer:
+    st.success("✅ Great — your reflection has been noted! Try refining it based on the relevant chunks.")
 
 # ---------- ABOUT SECTION ----------
 with st.expander("About this App"):
     st.markdown("""
-**Dr. T. N. Dave's Mahagujarat Monograph**  
+**Dr. T. N. Dave’s Mahagujarat Monograph**  
 
-Dr. T. N. Dave's monograph is a comprehensive study of the language and dialects of Gujarat,
-covering historical, regional, and modern developments. It is a seminal work for anyone
-interested in linguistics, history, and regional studies of India.
-
-This app was created to help researchers, students, and language enthusiasts
-search and explore the content of the monograph efficiently.  
-
-This app is developed with love and devotion and tribute by me Rashmikant Dave an AI Architect and Developer 
-to my Grandfather Dr T N Dave the Author of the Mahagujarat Study and Monograph and dedicate to all my family
-and extended family of Dr T N Dave
-
-Respects to all other learned teachers and scholars of the Gujarati Language
+A seminal study of Gujarat’s language, dialects, and historical evolution — now accessible through
+semantic search and contextual exploration.
 
 **Features:**  
-- Full-text search with semantic understanding via embeddings.  
-- Query-term highlighting for easy reference.  
-- Adjustable number of results (top-k).  
-- Integrated free Hugging Face model for summarization/inference.
+- Intelligent search across the entire monograph.  
+- Spell correction for cleaner queries.  
+- Optional “View Chunk” mode for readability.  
+- Built-in academic Q&A practice for deeper learning.  
 """)
-
