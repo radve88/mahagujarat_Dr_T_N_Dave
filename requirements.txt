@@ -1,23 +1,7 @@
-# Core
-streamlit==1.29.0
-
-# Model and embeddings
-sentence-transformers==2.2.2
-transformers==4.41.0
-torch==2.1.0
-
-# FAISS for vector search
-faiss-cpu==1.7.4
-
-# Utilities
-numpy==1.26.0
-re  # builtin, no need to install
-
-# Spellchecker (use pyspellchecker, works with 'from spellchecker import SpellChecker')
-pyspellchecker==0.7.6
-
-# Optional: For Streamlit rendering and markdown
-rich==14.2.0
-markdown-it-py==4.0.0
-mdurl==0.1.2
-pygments==2.19.2
+streamlit
+sentence-transformers
+transformers
+torch
+faiss-cpu
+numpy
+pyspellchecker
