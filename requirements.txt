@@ -1,7 +1,7 @@
-streamlit==1.29.0
+streamlit==1.30.0
 sentence-transformers==2.2.2
-torch==2.1.0
-transformers==4.41.0
-numpy==1.26.0
+torch==2.9.1
+transformers==4.45.2
+numpy==1.26.4
 pyspellchecker==0.7.6
-# faiss-cpu removed for initial deploy — add back only if logs show wheel is available
+scikit-learn==1.5.1
