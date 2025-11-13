@@ -5,6 +5,10 @@ import faiss
 import numpy as np
 import re
 from spellchecker import SpellChecker
+import os
+import requests
+from transformers import pipeline
+
 
 # ---------- CONFIG ----------
 PICKLE_FILE = "output/embeddings.pkl"
@@ -22,6 +26,36 @@ def load_data():
     return data["chunks"], data["embeddings"], index, model
 
 chunks, embeddings, index, model = load_data()
+@st.cache_resource
+def load_local_llm():
+    try:
+        model_name = "google/flan-t5-base"
+        qa_pipeline = pipeline("text2text-generation", model=model_name)
+        return qa_pipeline
+    except Exception as e:
+        st.warning(f"Local model load failed: {e}")
+        return None
+
+local_llm = load_local_llm()
+
+# ---------- OPTIONAL: Hugging Face Inference API ----------
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")  # Add token in Streamlit Secrets (for Cloud)
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+
+def query_huggingface_inference(prompt):
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 200}}
+    response = requests.post(HF_API_URL, headers=headers, json=payload)
+    if response.status_code == 200:
+        data = response.json()
+        if isinstance(data, list) and "generated_text" in data[0]:
+            return data[0]["generated_text"]
+        elif isinstance(data, dict) and "generated_text" in data:
+            return data["generated_text"]
+        else:
+            return str(data)
+    else:
+        return f"[Error {response.status_code}] {response.text}"
 
 # ---------- SPELL CHECKER ----------
 spell = SpellChecker()
@@ -111,3 +145,4 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
