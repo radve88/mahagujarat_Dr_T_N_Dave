@@ -1,10 +1,7 @@
-streamlit==1.40.0
-sentence-transformers==3.2.1
-faiss-cpu==1.9.0
-numpy==1.26.4
-scipy==1.13.1
-torch==2.4.0
-transformers==4.45.2
-pyspellchecker==0.7.2
-regex==2024.5.15
-pickle5==0.0.11
+streamlit==1.29.0
+sentence-transformers==2.2.2
+torch==2.1.0
+transformers==4.41.0
+numpy==1.26.0
+pyspellchecker==0.7.6
+# faiss-cpu removed for initial deploy — add back only if logs show wheel is available
