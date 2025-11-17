@@ -168,8 +168,10 @@ if query:
     # Store retrieved chunks for LLM inference
     st.session_state["retrieved_chunks"] = [r["chunk_text"] for r in results]
     st.session_state["last_query"] = query
-
+    
     st.subheader(f"Top {top_k} results for your query:")
+    st.write("Available API tool namespaces and actions:")
+    st.write(api.list_resources())  # 'api' is the object exposed by API tool
     for r in results:
         with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
             st.write(highlight_terms(r["chunk_text"], query))
@@ -232,6 +234,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
