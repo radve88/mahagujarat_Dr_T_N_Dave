@@ -119,7 +119,7 @@ Answer:
     try:
         with st.spinner("Generating answer from LLM..."):
             response = client.responses.create(
-                model="mistral-large-latest",
+                model="gpt-4o-mini",
                 input=final_prompt
             )
             llm_answer = response.output_text
@@ -226,6 +226,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
