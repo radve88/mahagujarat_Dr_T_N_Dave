@@ -11,15 +11,24 @@ from transformers import pipeline
 from openai import OpenAI
 
 
-# -------------------- CONFIG --------------------
-client = OpenAI(api_key=st.secrets["API_KEY"])
+# -----------------------------
+# STREAMLIT SECRETS → OPENAI KEY
+# -----------------------------
+client = OpenAI(api_key=st.secrets["general"]["API_KEY"])
 
+
+# -----------------------------
+# CONFIG
+# -----------------------------
 PICKLE_FILE = "output/embeddings.pkl"
 FAISS_INDEX_FILE = "output/faiss_index.index"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_LEN = 400  # chunk long text safely
+MAX_LEN = 400
 
-# -------------------- LOAD DATA --------------------
+
+# -----------------------------
+# LOAD DATA
+# -----------------------------
 @st.cache_resource
 def load_data():
     with open(PICKLE_FILE, "rb") as f:
@@ -28,21 +37,51 @@ def load_data():
     model = SentenceTransformer(MODEL_NAME)
     return data["chunks"], data["embeddings"], index, model
 
+
 chunks, embeddings, index, model = load_data()
 
+
+# -----------------------------
+# OPTIONAL LOCAL MODEL
+# -----------------------------
 @st.cache_resource
 def load_local_llm():
     try:
-        model_name = "google/flan-t5-base"
-        qa_pipeline = pipeline("text2text-generation", model=model_name)
+        qa_pipeline = pipeline("text2text-generation", model="google/flan-t5-base")
         return qa_pipeline
     except Exception as e:
         st.warning(f"Local model load failed: {e}")
         return None
 
+
 local_llm = load_local_llm()
 
-# -------------------- SPELL CHECKER --------------------
+
+# -----------------------------
+# OPTIONAL HUGGINGFACE INFERENCE
+# -----------------------------
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+
+def query_huggingface_inference(prompt):
+    if not HF_API_TOKEN:
+        return "[HF Token Missing]"
+
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 200}}
+
+    response = requests.post(HF_API_URL, headers=headers, json=payload)
+    if response.status_code == 200:
+        data = response.json()
+        if isinstance(data, list) and "generated_text" in data[0]:
+            return data[0]["generated_text"]
+        return str(data)
+    return f"Error {response.status_code}: {response.text}"
+
+
+# -----------------------------
+# SPELL CHECKER
+# -----------------------------
 spell = SpellChecker()
 
 def correct_query(query):
@@ -50,19 +89,28 @@ def correct_query(query):
     corrected = [spell.correction(w) for w in words]
     return " ".join(corrected)
 
-# -------------------- SAFE CHUNKER --------------------
+
+# -----------------------------
+# SAFE EMBEDDING FUNCTION
+# -----------------------------
 def safe_encode(text, model):
     words = text.split()
     segments = [" ".join(words[i:i + MAX_LEN]) for i in range(0, len(words), MAX_LEN)]
     embeddings = [model.encode(seg, convert_to_numpy=True) for seg in segments]
     return np.mean(embeddings, axis=0)
 
-# -------------------- QUERY FUNCTION --------------------
+
+# -----------------------------
+# FAISS RETRIEVAL
+# -----------------------------
 def query_faiss(query, top_k=3, apply_spell_check=True):
     if apply_spell_check:
         query = correct_query(query)
+
     query_vec = safe_encode(query, model)
+
     distances, indices = index.search(np.array([query_vec], dtype="float32"), top_k)
+
     results = []
     for i, idx in enumerate(indices[0]):
         results.append({
@@ -72,20 +120,21 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
         })
     return results
 
-# -------------------- HIGHLIGHT FUNCTION --------------------
-def highlight_terms(text, query):
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    return pattern.sub(f"**{query}**", text)
 
-# -------------------- STREAMLIT APP --------------------
+# -----------------------------
+# STREAMLIT UI
+# -----------------------------
 st.title("Dr. T. N. Dave: Mahagujarat Monograph Search")
+
 st.markdown("""
-This app helps researchers and students explore Dr. T. N. Dave’s *Mahagujarat Monograph* 
-through semantic search and interactive study features.
+Semantic search + LLM question answering based on  
+**Dr. T. N. Dave’s Mahagujarat Monograph**.
 """)
 
-# ---------- PRESET QUESTIONS ----------
-st.subheader("Explore Key Questions:")
+
+# -----------------------------
+# PRESET QUESTIONS
+# -----------------------------
 preset_questions = [
     "What does Dr. T. N. Dave say about the evolution of modern Gujarati?",
     "What are the key features of Gujarat’s geography?",
@@ -94,90 +143,92 @@ preset_questions = [
     "What social or cultural factors influenced the Mahagujarat movement?"
 ]
 
-selected_q = st.selectbox("Choose a question to explore:", ["-- Select a question --"] + preset_questions)
-query = st.text_input("Or enter your own search query:", value=selected_q if selected_q != "-- Select a question --" else "")
+selected_q = st.selectbox("Choose a question:", ["-- Select --"] + preset_questions)
+query = st.text_input("Or type your own query:", value=selected_q if selected_q != "-- Select --" else "")
 
-top_k = st.slider("Number of results to display:", min_value=1, max_value=10, value=3)
+top_k = st.slider("Number of results:", min_value=1, max_value=10, value=3)
 
-# -------------------- RUN SEARCH --------------------
+
+# -----------------------------
+# RUN SEMANTIC SEARCH
+# -----------------------------
 if query:
-    results = query_faiss(query, top_k=top_k, apply_spell_check=True)
-    
-    # Store retrieved chunks for LLM inference
+    results = query_faiss(query, top_k=top_k)
+
     st.session_state["retrieved_chunks"] = [r["chunk_text"] for r in results]
     st.session_state["last_query"] = query
-    
-    st.subheader(f"Top {top_k} results for your query:")
+
+    st.subheader(f"Top {top_k} results")
+
     for r in results:
-        with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
-            st.write(highlight_terms(r["chunk_text"], query))
-
-# -------------------- AUTO LLM INFERENCE (API TOOL) --------------------
+        with st.expander(f"Chunk #{r['chunk_index']} (Distance: {r['distance']:.4f})"):
+            st.write(r["chunk_text"])
 
 
-# Only run if chunks exist
+# -----------------------------
+# LLM ANSWERING USING OPENAI
+# -----------------------------
 if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
-    st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
 
-    # Use last query if available, else let model infer
-    input_query = st.session_state.get("last_query", "").strip()
+    st.markdown("## 🔮 LLM Answer")
+
+    input_query = st.session_state.get("last_query", "")
     context_text = "\n\n".join(st.session_state["retrieved_chunks"])
 
     final_prompt = f"""
 Answer the question using ONLY the context below.
-If the answer is not present in the context, say so.
+If the answer is not present, say "The answer is not in the provided text."
 
 Context:
 {context_text}
 
 Question:
-{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
+{input_query}
 
 Answer:
 """
 
     try:
-        with st.spinner("Generating answer from LLM via API Tool..."):
-            # List available API tool namespaces (optional, for debug)
-            st.write("Available API tool namespaces and actions:")
-            st.write(api_tool.list_resources())
-
-            # Call the LLM via API tool
-            response = api_tool.openai.create_response(
-                model="gpt-4o-mini",  # Must match a model listed in list_resources()
+        with st.spinner("Generating answer..."):
+            response = client.responses.create(
+                model="gpt-4o-mini",
                 input=final_prompt
             )
             llm_answer = response.output_text
 
-        st.subheader("🧠 LLM Answer")
         st.write(llm_answer)
 
     except Exception as e:
         st.error(f"LLM Error: {str(e)}")
 
-# -------------------- INTERACTIVE Q&A --------------------
+
+# -----------------------------
+# STUDENT REFLECTION MODE
+# -----------------------------
 st.markdown("---")
-st.subheader("🧠 Student Q&A Mode")
-st.markdown("Try answering the questions above based on what you read. Type your thoughts below:")
-user_answer = st.text_area("Your answer:")
+st.subheader("🧠 Reflection")
+user_answer = st.text_area("Write your understanding:")
+
 if user_answer:
-    st.success("✅ Great — your reflection has been noted! Try refining it based on the relevant chunks.")
+    st.success("Reflection saved. Continue learning!")
 
-# -------------------- ABOUT SECTION --------------------
-with st.expander("About this App"):
+
+# -----------------------------
+# ABOUT SECTION
+# -----------------------------
+with st.expander("About"):
     st.markdown("""
-**Dr. T. N. Dave’s Mahagujarat Monograph**  
-
-A seminal study of Gujarat’s language, dialects, and historical evolution — now accessible through
-semantic search and contextual exploration.
-
-**Features:**  
-- Intelligent search across the entire monograph.  
-- Spell correction for cleaner queries.  
-- Optional “View Chunk” mode for readability.  
-- Built-in academic Q&A practice for deeper learning.  
+**Mahagujarat Monograph Search Tool**  
+- Semantic search using Sentence Transformers  
+- FAISS vector indexing  
+- OpenAI LLM answer generation  
+- Built for researchers and students  
 """)
+   
 
+
+
+       
 
 
 
