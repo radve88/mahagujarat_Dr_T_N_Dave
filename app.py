@@ -96,10 +96,11 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
 # Only run if chunks exist
    
 # ---------------- AUTO LLM INFERENCE SECTION ----------------
+# ---------------- AUTO LLM INFERENCE SECTION ----------------
 if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
     st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
 
-    # Use last query if available, else let model infer
+    # Use last query if available
     input_query = st.session_state.get("last_query", "").strip()
     context_text = "\n\n".join(st.session_state["retrieved_chunks"])
 
@@ -111,17 +112,16 @@ Context:
 {context_text}
 
 Question:
-{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
+{input_query if input_query else 'Infer the most meaningful summary or answer from the context.'}
 
 Answer:
 """
 
-    # Auto LLM inference using the API tool
+    # Auto LLM inference using the API tool connector
     try:
         with st.spinner("Generating answer from LLM via API Tool..."):
-            # Correct namespace/action call
             response = api_tool.openai.create_response(
-                model="gpt-4o-mini",  # must match a valid model from list_resources()
+                model="gpt-4o-mini",
                 input=final_prompt
             )
             llm_answer = response.output_text
@@ -234,6 +234,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
