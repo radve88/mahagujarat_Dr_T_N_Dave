@@ -158,12 +158,51 @@ query = st.text_input("Or enter your own search query:", value=selected_q if sel
 top_k = st.slider("Number of results to display:", min_value=1, max_value=10, value=3)
 
 # ---------- RUN SEARCH ----------
+# ---------- RUN SEARCH ----------
 if query:
     results = query_faiss(query, top_k=top_k, apply_spell_check=True)
+    
+    # Store retrieved chunks for LLM inference
+    st.session_state["retrieved_chunks"] = [r["chunk_text"] for r in results]
+    st.session_state["last_query"] = query
+
     st.subheader(f"Top {top_k} results for your query:")
     for r in results:
         with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
             st.write(highlight_terms(r["chunk_text"], query))
+
+    # ---------------- AUTO LLM INFERENCE SECTION ----------------
+    if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
+        st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
+        input_query = st.session_state.get("last_query", "").strip()
+        context_text = "\n\n".join(st.session_state["retrieved_chunks"])
+
+        final_prompt = f"""
+Answer the question using ONLY the context below.
+If the answer is not present in the context, say so.
+
+Context:
+{context_text}
+
+Question:
+{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
+
+Answer:
+"""
+
+        try:
+            with st.spinner("Generating answer from LLM..."):
+                response = client.responses.create(
+                    model="mistral-large-latest",
+                    input=final_prompt
+                )
+                llm_answer = response.output_text
+
+            st.subheader("🧠 LLM Answer")
+            st.write(llm_answer)
+
+        except Exception as e:
+            st.error(f"LLM Error: {str(e)}")
 
 # ---------- INTERACTIVE Q&A ----------
 st.markdown("---")
@@ -187,6 +226,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
