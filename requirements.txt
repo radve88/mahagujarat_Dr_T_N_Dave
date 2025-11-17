@@ -1,10 +1,8 @@
 streamlit
 sentence-transformers
-torch
 transformers
+torch
+faiss-cpu
 numpy
 pyspellchecker
-scikit-learn
-faiss-cpu
-openai
 
