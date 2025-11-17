@@ -94,6 +94,7 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
 # ---------------- AUTO LLM INFERENCE SECTION ----------------
 
 # Only run if chunks exist
+   
 if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
 
     st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
@@ -234,6 +235,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
