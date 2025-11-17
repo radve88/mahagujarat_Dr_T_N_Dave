@@ -8,6 +8,10 @@ from spellchecker import SpellChecker
 import os
 import requests
 from transformers import pipeline
+from openai import OpenAI
+
+client = OpenAI(api_key=st.secrets["HF_TOKEN"])
+
 
 
 # ---------- CONFIG ----------
@@ -183,5 +187,6 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
