@@ -6,4 +6,5 @@ numpy
 pyspellchecker
 scikit-learn
 faiss-cpu
+openai
 
