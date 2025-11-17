@@ -132,9 +132,7 @@ except Exception as e:
     st.error(f"LLM Error: {str(e)}")
 
 
-    except Exception as e:
-        st.error(f"LLM Error: {str(e)}")
-
+    
 # ---------- HIGHLIGHT FUNCTION ----------
 def highlight_terms(text, query):
     pattern = re.compile(re.escape(query), re.IGNORECASE)
@@ -231,6 +229,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
