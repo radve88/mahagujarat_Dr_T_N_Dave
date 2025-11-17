@@ -5,136 +5,116 @@ import faiss
 import numpy as np
 import re
 from spellchecker import SpellChecker
-import os
-import requests
 from transformers import pipeline
-from openai import OpenAI
-
-
-# -----------------------------
-# STREAMLIT SECRETS → OPENAI KEY
-# -----------------------------
-client = OpenAI(api_key=st.secrets["general"]["API_KEY"])
-
+import os
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 PICKLE_FILE = "output/embeddings.pkl"
 FAISS_INDEX_FILE = "output/faiss_index.index"
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_LEN = 400
-
+SENTENCE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+LLM_MODEL = "google/flan-t5-base"
+MAX_LEN = 400  # words per chunk for LLM prompt
+TOP_K_DEFAULT = 3
+LLM_MAX_TOKENS = 200  # response length per chunk
 
 # -----------------------------
-# LOAD DATA
+# LOAD DATA / MODELS
 # -----------------------------
 @st.cache_resource
-def load_data():
+def load_sentence_model():
+    return SentenceTransformer(SENTENCE_MODEL)
+
+@st.cache_resource
+def load_faiss_and_embeddings():
     with open(PICKLE_FILE, "rb") as f:
         data = pickle.load(f)
     index = faiss.read_index(FAISS_INDEX_FILE)
-    model = SentenceTransformer(MODEL_NAME)
-    return data["chunks"], data["embeddings"], index, model
+    return data["chunks"], np.array(data["embeddings"], dtype="float32"), index
 
-
-chunks, embeddings, index, model = load_data()
-
-
-# -----------------------------
-# OPTIONAL LOCAL MODEL
-# -----------------------------
 @st.cache_resource
-def load_local_llm():
-    try:
-        qa_pipeline = pipeline("text2text-generation", model="google/flan-t5-base")
-        return qa_pipeline
-    except Exception as e:
-        st.warning(f"Local model load failed: {e}")
-        return None
+def load_local_llm_pipeline():
+    # deterministic: do_sample=False, temperature ignored by pipeline if do_sample=False
+    return pipeline("text2text-generation", model=LLM_MODEL, device=-1)  # -1 uses CPU
 
-
-local_llm = load_local_llm()
-
+sentence_model = load_sentence_model()
+chunks, embeddings, index = load_faiss_and_embeddings()
+local_llm = load_local_llm_pipeline()
 
 # -----------------------------
-# OPTIONAL HUGGINGFACE INFERENCE
-# -----------------------------
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")
-HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-
-def query_huggingface_inference(prompt):
-    if not HF_API_TOKEN:
-        return "[HF Token Missing]"
-
-    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 200}}
-
-    response = requests.post(HF_API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-        return str(data)
-    return f"Error {response.status_code}: {response.text}"
-
-
-# -----------------------------
-# SPELL CHECKER
+# UTILITIES
 # -----------------------------
 spell = SpellChecker()
 
-def correct_query(query):
+def correct_query(query: str) -> str:
     words = query.split()
     corrected = [spell.correction(w) for w in words]
     return " ".join(corrected)
 
-
-# -----------------------------
-# SAFE EMBEDDING FUNCTION
-# -----------------------------
-def safe_encode(text, model):
+def safe_encode(text: str, model: SentenceTransformer) -> np.ndarray:
     words = text.split()
     segments = [" ".join(words[i:i + MAX_LEN]) for i in range(0, len(words), MAX_LEN)]
-    embeddings = [model.encode(seg, convert_to_numpy=True) for seg in segments]
-    return np.mean(embeddings, axis=0)
+    embeddings_list = [model.encode(seg, convert_to_numpy=True) for seg in segments]
+    return np.mean(embeddings_list, axis=0)
 
+def highlight_terms(text: str, query: str) -> str:
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    return pattern.sub(f"**{query}**", text)
 
-# -----------------------------
-# FAISS RETRIEVAL
-# -----------------------------
-def query_faiss(query, top_k=3, apply_spell_check=True):
+def query_faiss(query: str, top_k: int = 3, apply_spell_check: bool = True):
     if apply_spell_check:
-        query = correct_query(query)
-
-    query_vec = safe_encode(query, model)
-
-    distances, indices = index.search(np.array([query_vec], dtype="float32"), top_k)
-
+        safe_q = correct_query(query)
+    else:
+        safe_q = query
+    q_vec = safe_encode(safe_q, sentence_model)
+    distances, indices = index.search(np.array([q_vec], dtype="float32"), top_k)
     results = []
     for i, idx in enumerate(indices[0]):
         results.append({
-            "chunk_index": idx,
+            "chunk_index": int(idx),
             "chunk_text": chunks[idx],
-            "distance": distances[0][i]
+            "distance": float(distances[0][i])
         })
     return results
 
+def llm_answer_from_chunks(context_chunk: str, question: str, include_instructions: bool = True) -> str:
+    """
+    Deterministic FLAN-T5 answer for a single context chunk.
+    do_sample=False ensures deterministic output.
+    """
+    if include_instructions:
+        prompt = f"""Answer the question using ONLY the context below.
+If the answer is not present in the context, respond exactly with:
+"The context does not contain the answer."
+
+Context:
+{context_chunk}
+
+Question:
+{question}
+
+Answer:"""
+    else:
+        prompt = f"Context:\n{context_chunk}\n\nQuestion:\n{question}\n\nAnswer:"
+
+    # pipeline returns list of dicts with 'generated_text'
+    out = local_llm(prompt, max_new_tokens=LLM_MAX_TOKENS, do_sample=False, num_return_sequences=1)
+    if isinstance(out, list) and len(out) > 0 and "generated_text" in out[0]:
+        return out[0]["generated_text"].strip()
+    # Fallback
+    return str(out).strip()
 
 # -----------------------------
 # STREAMLIT UI
 # -----------------------------
-st.title("Dr. T. N. Dave: Mahagujarat Monograph Search")
+st.title("Dr. T. N. Dave: Mahagujarat Monograph Search (FLAN-T5 Deterministic)")
+st.markdown(
+    "Semantic search over Dr. T. N. Dave's monograph with deterministic LLM answers "
+    "based strictly on retrieved chunks. If answer isn't in the context, the model will say so."
+)
 
-st.markdown("""
-Semantic search + LLM question answering based on  
-**Dr. T. N. Dave’s Mahagujarat Monograph**.
-""")
-
-
-# -----------------------------
-# PRESET QUESTIONS
-# -----------------------------
+# Preset questions
 preset_questions = [
     "What does Dr. T. N. Dave say about the evolution of modern Gujarati?",
     "What are the key features of Gujarat’s geography?",
@@ -143,92 +123,75 @@ preset_questions = [
     "What social or cultural factors influenced the Mahagujarat movement?"
 ]
 
-selected_q = st.selectbox("Choose a question:", ["-- Select --"] + preset_questions)
-query = st.text_input("Or type your own query:", value=selected_q if selected_q != "-- Select --" else "")
+selected_q = st.selectbox("Choose a question to explore:", ["-- Select a question --"] + preset_questions)
+query = st.text_input("Or enter your own query:", value=selected_q if selected_q != "-- Select a question --" else "")
+top_k = st.slider("Number of results to display:", min_value=1, max_value=10, value=TOP_K_DEFAULT)
 
-top_k = st.slider("Number of results:", min_value=1, max_value=10, value=3)
-
-
-# -----------------------------
-# RUN SEMANTIC SEARCH
-# -----------------------------
+# Run search
 if query:
-    results = query_faiss(query, top_k=top_k)
-
+    results = query_faiss(query, top_k=top_k, apply_spell_check=True)
     st.session_state["retrieved_chunks"] = [r["chunk_text"] for r in results]
     st.session_state["last_query"] = query
 
-    st.subheader(f"Top {top_k} results")
-
+    st.subheader(f"Top {top_k} results for your query:")
     for r in results:
-        with st.expander(f"Chunk #{r['chunk_index']} (Distance: {r['distance']:.4f})"):
-            st.write(r["chunk_text"])
+        with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
+            st.write(highlight_terms(r["chunk_text"], query))
 
-
-# -----------------------------
-# LLM ANSWERING USING OPENAI
-# -----------------------------
-if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
-
-    st.markdown("## 🔮 LLM Answer")
-
-    input_query = st.session_state.get("last_query", "")
-    context_text = "\n\n".join(st.session_state["retrieved_chunks"])
-
-    final_prompt = f"""
-Answer the question using ONLY the context below.
-If the answer is not present, say "The answer is not in the provided text."
-
-Context:
-{context_text}
-
-Question:
-{input_query}
-
-Answer:
-"""
-
-    try:
-        with st.spinner("Generating answer..."):
-            response = client.responses.create(
-                model="gpt-4o-mini",
-                input=final_prompt
-            )
-            llm_answer = response.output_text
-
-        st.write(llm_answer)
-
-    except Exception as e:
-        st.error(f"LLM Error: {str(e)}")
-
-
-# -----------------------------
-# STUDENT REFLECTION MODE
-# -----------------------------
+# Student reflection area (optional)
 st.markdown("---")
-st.subheader("🧠 Reflection")
-user_answer = st.text_area("Write your understanding:")
+st.subheader("Student Q&A (optional)")
+student_answer = st.text_area("Write your answer / reflection (optional):")
+if student_answer:
+    st.success("Reflection noted — it will be considered when generating the LLM answer.")
 
-if user_answer:
-    st.success("Reflection saved. Continue learning!")
+# Auto LLM inference (deterministic) — runs if we have retrieved chunks
+if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
+    st.markdown("## 🔮 Deterministic LLM Answer (from retrieved chunks)")
 
+    last_q = st.session_state.get("last_query", "").strip()
+    student_input = student_answer.strip() if student_answer else ""
 
-# -----------------------------
-# ABOUT SECTION
-# -----------------------------
-with st.expander("About"):
-    st.markdown("""
-**Mahagujarat Monograph Search Tool**  
-- Semantic search using Sentence Transformers  
-- FAISS vector indexing  
-- OpenAI LLM answer generation  
-- Built for researchers and students  
-""")
-   
+    # Build full context as words and chunk for LLM in MAX_LEN-word slices
+    all_words = " ".join(st.session_state["retrieved_chunks"]).split()
+    context_chunks = [" ".join(all_words[i:i + MAX_LEN]) for i in range(0, len(all_words), MAX_LEN)]
+    chunk_answers = []
 
+    # For strict mode: model must answer only from context. We'll run it on each context chunk deterministically.
+    for i, c in enumerate(context_chunks):
+        with st.spinner(f"Generating deterministic answer from chunk {i+1}/{len(context_chunks)}..."):
+            ans = llm_answer_from_chunks(c, last_q)
+            chunk_answers.append(ans)
 
+    # Post-process chunk answers:
+    # If any chunk returns a real answer (i.e., not the sentinel "The context does not contain the answer."),
+    # we will collect those and display them. Otherwise report not found.
+    sentinel = "The context does not contain the answer."
+    useful_answers = [a for a in chunk_answers if a and sentinel not in a]
 
-       
+    if len(useful_answers) == 0:
+        st.info(sentinel)
+    else:
+        # Combine deterministic chunk answers (de-duplicate while preserving order)
+        seen = set()
+        consolidated = []
+        for a in useful_answers:
+            if a not in seen:
+                consolidated.append(a)
+                seen.add(a)
+        st.subheader("🧠 Answer (consolidated from chunks):")
+        for ans in consolidated:
+            st.write(ans)
 
+# About
+with st.expander("About this App"):
+    st.markdown(
+        """
+**Dr. T. N. Dave’s Mahagujarat Monograph — Deterministic QA**
 
-
+- Uses Sentence-Transformers for embeddings and FAISS for retrieval.
+- Uses a local FLAN-T5 model (`google/flan-t5-base`) for deterministic answers (do_sample=False).
+- Strict Answer Mode: answers must be present in retrieved chunks; otherwise the model says the context does not contain the answer.
+- No external API keys or billing required for this mode.
+"""
+    )
