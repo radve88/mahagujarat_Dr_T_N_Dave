@@ -138,7 +138,7 @@ Answer:
 
     try:
         with st.spinner("Generating answer from LLM via API Tool..."):
-            response = api_tool.openai_create_response(
+            response = api_tool.openai.create_response(
                 model="gpt-4o-mini",  # must match a valid model in your namespace
                 input=final_prompt
             )
@@ -172,4 +172,5 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
