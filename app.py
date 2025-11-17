@@ -10,17 +10,15 @@ import requests
 from transformers import pipeline
 from openai import OpenAI
 
+# -------------------- CONFIG --------------------
 client = OpenAI(api_key=st.secrets["API_KEY"])
 
-
-
-# ---------- CONFIG ----------
 PICKLE_FILE = "output/embeddings.pkl"
 FAISS_INDEX_FILE = "output/faiss_index.index"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 MAX_LEN = 400  # chunk long text safely
 
-# ---------- LOAD DATA ----------
+# -------------------- LOAD DATA --------------------
 @st.cache_resource
 def load_data():
     with open(PICKLE_FILE, "rb") as f:
@@ -30,6 +28,7 @@ def load_data():
     return data["chunks"], data["embeddings"], index, model
 
 chunks, embeddings, index, model = load_data()
+
 @st.cache_resource
 def load_local_llm():
     try:
@@ -42,26 +41,7 @@ def load_local_llm():
 
 local_llm = load_local_llm()
 
-# ---------- OPTIONAL: Hugging Face Inference API ----------
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")  # Add token in Streamlit Secrets (for Cloud)
-HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-
-def query_huggingface_inference(prompt):
-    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 200}}
-    response = requests.post(HF_API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-        elif isinstance(data, dict) and "generated_text" in data:
-            return data["generated_text"]
-        else:
-            return str(data)
-    else:
-        return f"[Error {response.status_code}] {response.text}"
-
-# ---------- SPELL CHECKER ----------
+# -------------------- SPELL CHECKER --------------------
 spell = SpellChecker()
 
 def correct_query(query):
@@ -69,15 +49,14 @@ def correct_query(query):
     corrected = [spell.correction(w) for w in words]
     return " ".join(corrected)
 
-# ---------- SAFE CHUNKER ----------
+# -------------------- SAFE CHUNKER --------------------
 def safe_encode(text, model):
-    # Break long queries into smaller parts
     words = text.split()
     segments = [" ".join(words[i:i + MAX_LEN]) for i in range(0, len(words), MAX_LEN)]
     embeddings = [model.encode(seg, convert_to_numpy=True) for seg in segments]
-    return np.mean(embeddings, axis=0)  # average embedding
+    return np.mean(embeddings, axis=0)
 
-# ---------- QUERY FUNCTION ----------
+# -------------------- QUERY FUNCTION --------------------
 def query_faiss(query, top_k=3, apply_spell_check=True):
     if apply_spell_check:
         query = correct_query(query)
@@ -91,54 +70,13 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
             "distance": distances[0][i]
         })
     return results
-# ---------------- AUTO LLM INFERENCE SECTION ----------------
 
-# Only run if chunks exist
-   
-# ---------------- AUTO LLM INFERENCE SECTION ----------------
-# ---------------- AUTO LLM INFERENCE SECTION ----------------
-if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
-    st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
-
-    # Use last query if available
-    input_query = st.session_state.get("last_query", "").strip()
-    context_text = "\n\n".join(st.session_state["retrieved_chunks"])
-
-    final_prompt = f"""
-Answer the question using ONLY the context below.
-If the answer is not present in the context, say so.
-
-Context:
-{context_text}
-
-Question:
-{input_query if input_query else 'Infer the most meaningful summary or answer from the context.'}
-
-Answer:
-"""
-
-    # Auto LLM inference using the API tool connector
-    try:
-        with st.spinner("Generating answer from LLM via API Tool..."):
-            response = api_tool.openai.create_response(
-                model="gpt-4o-mini",
-                input=final_prompt
-            )
-            llm_answer = response.output_text
-
-        st.subheader("🧠 LLM Answer")
-        st.write(llm_answer)
-
-    except Exception as e:
-        st.error(f"LLM Error: {str(e)}")
-
-    
-# ---------- HIGHLIGHT FUNCTION ----------
+# -------------------- HIGHLIGHT FUNCTION --------------------
 def highlight_terms(text, query):
     pattern = re.compile(re.escape(query), re.IGNORECASE)
     return pattern.sub(f"**{query}**", text)
 
-# ---------- STREAMLIT APP ----------
+# -------------------- STREAMLIT APP --------------------
 st.title("Dr. T. N. Dave: Mahagujarat Monograph Search")
 st.markdown("""
 This app helps researchers and students explore Dr. T. N. Dave’s *Mahagujarat Monograph* 
@@ -160,8 +98,7 @@ query = st.text_input("Or enter your own search query:", value=selected_q if sel
 
 top_k = st.slider("Number of results to display:", min_value=1, max_value=10, value=3)
 
-# ---------- RUN SEARCH ----------
-# ---------- RUN SEARCH ----------
+# -------------------- RUN SEARCH --------------------
 if query:
     results = query_faiss(query, top_k=top_k, apply_spell_check=True)
     
@@ -170,22 +107,18 @@ if query:
     st.session_state["last_query"] = query
     
     st.subheader(f"Top {top_k} results for your query:")
-    st.write("Available API tool namespaces and actions:")
-    st.write(api.list_resources())  # 'api' is the object exposed by API tool
     for r in results:
         with st.expander(f"📖 View Chunk #{r['chunk_index']} | Distance: {r['distance']:.4f}"):
             st.write(highlight_terms(r["chunk_text"], query))
 
-    # ---------------- AUTO LLM INFERENCE SECTION ----------------
-st.write("Available API tool namespaces and actions:")
-st.write(api.list_resources())  # 'api' is the object exposed by API tool
-
+# -------------------- AUTO LLM INFERENCE (API TOOL) --------------------
 if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
-        st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
-        input_query = st.session_state.get("last_query", "").strip()
-        context_text = "\n\n".join(st.session_state["retrieved_chunks"])
+    st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
 
-        final_prompt = f"""
+    input_query = st.session_state.get("last_query", "").strip()
+    context_text = "\n\n".join(st.session_state["retrieved_chunks"])
+
+    final_prompt = f"""
 Answer the question using ONLY the context below.
 If the answer is not present in the context, say so.
 
@@ -193,26 +126,26 @@ Context:
 {context_text}
 
 Question:
-{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
+{input_query if input_query else 'Infer the most meaningful summary or answer from the context.'}
 
 Answer:
 """
 
-        try:
-            with st.spinner("Generating answer from LLM..."):
-                response = client.responses.create(
-                    model="mistral-large-latest",
-                    input=final_prompt
-                )
-                llm_answer = response.output_text
+    try:
+        with st.spinner("Generating answer from LLM via API Tool..."):
+            response = api_tool.openai_create_response(
+                model="gpt-4o-mini",  # must match a valid model in your namespace
+                input=final_prompt
+            )
+            llm_answer = response.output_text
 
-            st.subheader("🧠 LLM Answer")
-            st.write(llm_answer)
+        st.subheader("🧠 LLM Answer")
+        st.write(llm_answer)
 
-        except Exception as e:
-            st.error(f"LLM Error: {str(e)}")
+    except Exception as e:
+        st.error(f"LLM Error: {str(e)}")
 
-# ---------- INTERACTIVE Q&A ----------
+# -------------------- INTERACTIVE Q&A --------------------
 st.markdown("---")
 st.subheader("🧠 Student Q&A Mode")
 st.markdown("Try answering the questions above based on what you read. Type your thoughts below:")
@@ -220,7 +153,7 @@ user_answer = st.text_area("Your answer:")
 if user_answer:
     st.success("✅ Great — your reflection has been noted! Try refining it based on the relevant chunks.")
 
-# ---------- ABOUT SECTION ----------
+# -------------------- ABOUT SECTION --------------------
 with st.expander("About this App"):
     st.markdown("""
 **Dr. T. N. Dave’s Mahagujarat Monograph**  
@@ -234,19 +167,3 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
