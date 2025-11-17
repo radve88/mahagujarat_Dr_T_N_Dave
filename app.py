@@ -9,10 +9,6 @@ import os
 import requests
 from transformers import pipeline
 from openai import OpenAI
-from streamlit_api_tool import ApiTool
-
-# Initialize API tool
-api_tool = ApiTool()
 
 
 # -------------------- CONFIG --------------------
@@ -181,6 +177,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
