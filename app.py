@@ -117,9 +117,13 @@ if query:
             st.write(highlight_terms(r["chunk_text"], query))
 
 # -------------------- AUTO LLM INFERENCE (API TOOL) --------------------
+
+
+# Only run if chunks exist
 if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
     st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
 
+    # Use last query if available, else let model infer
     input_query = st.session_state.get("last_query", "").strip()
     context_text = "\n\n".join(st.session_state["retrieved_chunks"])
 
@@ -131,15 +135,20 @@ Context:
 {context_text}
 
 Question:
-{input_query if input_query else 'Infer the most meaningful summary or answer from the context.'}
+{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
 
 Answer:
 """
 
     try:
         with st.spinner("Generating answer from LLM via API Tool..."):
+            # List available API tool namespaces (optional, for debug)
+            st.write("Available API tool namespaces and actions:")
+            st.write(api_tool.list_resources())
+
+            # Call the LLM via API tool
             response = api_tool.openai.create_response(
-                model="gpt-4o-mini",  # must match a valid model in your namespace
+                model="gpt-4o-mini",  # Must match a model listed in list_resources()
                 input=final_prompt
             )
             llm_answer = response.output_text
@@ -172,5 +181,6 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
