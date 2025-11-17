@@ -116,16 +116,21 @@ Question:
 Answer:
 """
 
-    try:
-        with st.spinner("Generating answer from LLM..."):
-            response = client.responses.create(
-                model="gpt-4o-mini",
-                input=final_prompt
-            )
-            llm_answer = response.output_text
+    # Auto LLM inference using the API tool
+try:
+    with st.spinner("Generating answer from LLM..."):
+        response = api_tool.openai_create_response(
+            model="gpt-4o-mini",  # must match a valid model from list_resources()
+            input=final_prompt
+        )
+        llm_answer = response.output_text
 
-        st.subheader("🧠 LLM Answer")
-        st.write(llm_answer)
+    st.subheader("🧠 LLM Answer")
+    st.write(llm_answer)
+
+except Exception as e:
+    st.error(f"LLM Error: {str(e)}")
+
 
     except Exception as e:
         st.error(f"LLM Error: {str(e)}")
@@ -226,6 +231,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
