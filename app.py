@@ -180,7 +180,7 @@ if query:
 st.write("Available API tool namespaces and actions:")
 st.write(api.list_resources())  # 'api' is the object exposed by API tool
 
-    if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
+if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
         st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
         input_query = st.session_state.get("last_query", "").strip()
         context_text = "\n\n".join(st.session_state["retrieved_chunks"])
@@ -234,6 +234,7 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
 
 
