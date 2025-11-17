@@ -87,6 +87,44 @@ def query_faiss(query, top_k=3, apply_spell_check=True):
             "distance": distances[0][i]
         })
     return results
+# ---------------- AUTO LLM INFERENCE SECTION ----------------
+
+# Only run if chunks exist
+if "retrieved_chunks" in st.session_state and len(st.session_state["retrieved_chunks"]) > 0:
+
+    st.markdown("## 🔮 LLM Answer from Retrieved Chunks")
+
+    # Use last query if available, else let model infer
+    input_query = st.session_state.get("last_query", "").strip()
+
+    context_text = "\n\n".join(st.session_state["retrieved_chunks"])
+
+    final_prompt = f"""
+Answer the question using ONLY the context below.
+If the answer is not present in the context, say so.
+
+Context:
+{context_text}
+
+Question:
+{input_query if input_query != '' else 'Infer the most meaningful summary or answer from the context.'}
+
+Answer:
+"""
+
+    try:
+        with st.spinner("Generating answer from LLM..."):
+            response = client.responses.create(
+                model="mistral-large-latest",
+                input=final_prompt
+            )
+            llm_answer = response.output_text
+
+        st.subheader("🧠 LLM Answer")
+        st.write(llm_answer)
+
+    except Exception as e:
+        st.error(f"LLM Error: {str(e)}")
 
 # ---------- HIGHLIGHT FUNCTION ----------
 def highlight_terms(text, query):
@@ -145,4 +183,5 @@ semantic search and contextual exploration.
 - Optional “View Chunk” mode for readability.  
 - Built-in academic Q&A practice for deeper learning.  
 """)
+
 
